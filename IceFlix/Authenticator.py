@@ -17,7 +17,6 @@ except ImportError:
 class Authenticator(IceFlix.Authenticator):
     def __init__(self):
         self.id = str(uuid.uuid4())
-        # self.prx = ""
         with open('users.json', 'r') as fd:
             self.users = json.load(fd)
         print("Authenticator Created...")
@@ -26,11 +25,11 @@ class Authenticator(IceFlix.Authenticator):
         # return self.prx
 
     def refreshAuthorization(self,user,passwordHash,current=None): # Falta implementar temporizador
-        if(self.users.get(user) == passwordHash): # Con esto obtenemos la contraseña a partir del usuario
+        if(self.users.get(user)[0]["passwordHash"] == passwordHash): # Con esto obtenemos la contraseña a partir del usuario
             print("Refreshing...")
             nuevoToken = secrets.token_hex(16)
             self.users.pop(user)
-            self.users[user] = nuevoToken
+            self.users[user][0]["token"] = nuevoToken
             with open('users.json', 'w') as fd:
                 json.dump(self.users,fd)
         else:
@@ -38,30 +37,36 @@ class Authenticator(IceFlix.Authenticator):
         return nuevoToken
 
     def isAuthorized(self,userToken,current=None): 
-        return userToken in self.users.values()
+        # Falta implementar que compruebe si está bien con temporizador.
+        lista = self.users.values()
+        for i in lista:
+            if i[0]["token"] == userToken:
+                return True
+        return False
 
-    def whois(self,userToken,current=None): # throws Unauthorized
+    def whois(self,userToken,current=None):
         if not self.isAuthorized(userToken):
             raise IceFlix.Unauthorized
         lista = self.users.items()
-        for clave,valor in lista:
-            if valor == userToken:
-                return clave
+        for i in lista:
+            if i[1][0]["token"] == userToken:
+                return i[0]
+        return "Unknown"
 
-    def isAdmin(self,adminToken,current=None):
+    def isAdmin(self,adminToken,current=None):  # En principio no tocar
         if not self.isAuthorized(adminToken):
             raise IceFlix.Unauthorized
         return "admin" == self.whois(adminToken)
 
-    def addUser(self,user,passwordHash,adminToken,current=None):    # throws Unauthorized, TemporaryUnavailable
-        if not self.isAuthorized(adminToken):
+    def addUser(self,user,passwordHash,adminToken,current=None): 
+        if not self.isAdmin(adminToken):
             raise IceFlix.Unauthorized
         self.users[user] = passwordHash
         with open('users.json', 'w') as fd:
             json.dump(self.users,fd)
 
-    def removeUser(self,user,adminToken,current=None):  # throws Unauthorized, TemporaryUnavailable
-        if not self.isAuthorized(adminToken):
+    def removeUser(self,user,adminToken,current=None):  # No tocar
+        if not self.isAdmin(adminToken):
             raise IceFlix.Unauthorized
         self.users.pop(user)
         with open('users.json', 'w') as fd:
@@ -76,8 +81,7 @@ class Server(Ice.Application):
         prx = adapter.add(servant, broker.stringToIdentity("authenticator"))
         
         adapter.activate()
-        
-        # servant.prx = prx
+
         print(f'The proxy of Authenticator is "{prx}"')
         
         self.shutdownOnInterrupt()

@@ -15,9 +15,9 @@ class Server(Ice.Application):
         if not auth:
             print("No es un proxy válido de autenticacion")
 
-        auth.refreshAuthorization("Octavian","Rumania")
-        auth.refreshAuthorization("Alejandro","12345")
-        auth.refreshAuthorization("admin","09876")
+        print(auth.isAuthorized("12345"))
+        # auth.refreshAuthorization("Alejandro","12345")
+        # auth.refreshAuthorization("admin","09876")
         # print(auth.isAdmin("12345"))
         # auth.refreshAuthorization("Alejandro","12345")
 
