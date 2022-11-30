@@ -51,7 +51,6 @@ class Authenticator(IceFlix.Authenticator):
         for i in lista:
             if i[1][0]["token"] == userToken:
                 return i[0]
-        return "Unknown"
 
     def isAdmin(self,adminToken,current=None):  # En principio no tocar
         if not self.isAuthorized(adminToken):
@@ -61,7 +60,7 @@ class Authenticator(IceFlix.Authenticator):
     def addUser(self,user,passwordHash,adminToken,current=None): 
         if not self.isAdmin(adminToken):
             raise IceFlix.Unauthorized
-        self.users[user] = passwordHash
+        self.users[user] = [{"token":secrets.token_hex(16),"passwordHash":passwordHash,"timestamp":""}]
         with open('users.json', 'w') as fd:
             json.dump(self.users,fd)
 
