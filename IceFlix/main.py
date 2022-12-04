@@ -1,31 +1,59 @@
-#!/usr/bin/env python3
+"""Module containing a template for a main service."""
 
-import sys
+import logging
+
 import Ice
-Ice.loadSlice('IceFlix.ice')
-import IceFlix
 
-class Server(Ice.Application):
-    def run(self, argv):
-        broker = self.communicator()
+import IceFlix  # pylint:disable=import-error
 
-        proxy = self.communicator().stringToProxy(argv[1])
-        auth = IceFlix.AuthenticatorPrx.uncheckedCast(proxy)
 
-        if not auth:
-            print("No es un proxy válido de autenticacion")
+class Main(IceFlix.Main):
+    """Servant for the IceFlix.Main interface.
 
-        print(auth.isAuthorized("12345"))
-        # auth.refreshAuthorization("Alejandro","12345")
-        # auth.refreshAuthorization("admin","09876")
-        # print(auth.isAdmin("12345"))
-        # auth.refreshAuthorization("Alejandro","12345")
+    Disclaimer: this is demo code, it lacks of most of the needed methods
+    for this interface. Use it with caution
+    """
+
+    def getAuthenticator(self, current):  # pylint:disable=invalid-name, unused-argument
+        "Return the stored Authenticator proxy."
+        # TODO: implement
+        return None
+
+    def getCatalog(self, current):  # pylint:disable=invalid-name, unused-argument
+        "Return the stored MediaCatalog proxy."
+        # TODO: implement
+        return None
+
+    def newService(self, proxy, service_id, current):  # pylint:disable=invalid-name, unused-argument
+        "Receive a proxy of a new service."
+        # TODO: implement
+        return
+
+    def announce(self, proxy, service_id, current):  # pylint:disable=invalid-name, unused-argument
+        "Announcements handler."
+        # TODO: implement
+        return
+
+
+class MainApp(Ice.Application):
+    """Example Ice.Application for a Main service."""
+
+    def __init__(self):
+        super().__init__()
+        self.servant = Main()
+        self.proxy = None
+        self.adapter = None
+
+    def run(self, args):
+        """Run the application, adding the needed objects to the adapter."""
+        logging.info("Running Main application")
+        comm = self.communicator()
+        self.adapter = comm.createObjectAdapter("MainAdapter")
+        self.adapter.activate()
+
+        self.proxy = self.adapter.addWithUUID(self.servant)
 
         self.shutdownOnInterrupt()
-        broker.waitForShutdown()
+        comm.waitForShutdown()
 
         return 0
-
-if __name__ == "__main__":
-    server = Server()
-    sys.exit(server.main(sys.argv))
