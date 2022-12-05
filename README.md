@@ -16,9 +16,6 @@ It contains the following files and directories:
   without the service servant itself.
   Can be used as template for main or the other services.
 - `pyproject.toml` defines the build system used in the project.
-- `run_client` should be a script that can be run directly from the
-  repository root directory. It should be able to run the IceFlix
-  client.
 - `run_service` should be a script that can be run directly from the
   repository root directory. It should be able to run all the services
   in background in order to test the whole system.
