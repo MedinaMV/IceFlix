@@ -6,6 +6,8 @@ import json
 import secrets
 import Ice
 import uuid
+import datetime
+import time
 Ice.loadSlice('IceFlix.ice')
 
 try:
@@ -19,10 +21,6 @@ class Authenticator(IceFlix.Authenticator):
         self.id = str(uuid.uuid4())
         with open('users.json', 'r') as fd:
             self.users = json.load(fd)
-        print("Authenticator Created...")
-
-    # def getAuthenticator(self,current=None):
-        # return self.prx
 
     def refreshAuthorization(self,user,passwordHash,current=None): # Falta implementar temporizador
         if(self.users.get(user)[0]["passwordHash"] == passwordHash): # Con esto obtenemos la contraseña a partir del usuario
@@ -60,7 +58,7 @@ class Authenticator(IceFlix.Authenticator):
     def addUser(self,user,passwordHash,adminToken,current=None): 
         if not self.isAdmin(adminToken):
             raise IceFlix.Unauthorized
-        self.users[user] = [{"token":secrets.token_hex(16),"passwordHash":passwordHash,"timestamp":""}]
+        self.users[user] = [{"token":secrets.token_hex(16),"passwordHash":passwordHash,"timestamp":time.mktime(datetime.datetime.now().timetuple())}]
         with open('users.json', 'w') as fd:
             json.dump(self.users,fd)
 
