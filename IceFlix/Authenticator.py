@@ -3,6 +3,7 @@
 import os
 import sys
 import json
+import threading
 import secrets
 import Ice
 import uuid
@@ -20,22 +21,25 @@ class Authenticator(IceFlix.Authenticator):
     def __init__(self,adminToken):
         self.id = str(uuid.uuid4())
         self.adminToken = adminToken
-        with open('IceFlix/users.json', 'r') as fd:
-            self.users = json.load(fd)
+        try:
+            with open('IceFlix/users.json','r') as fd:
+                self.users = json.load(fd)
+        except:
+            self.users = {}
 
-    def refreshAuthorization(self,user,passwordHash,current=None): # Falta implementar temporizador
-        if(self.users.get(user)[0]["passwordHash"] == passwordHash): 
-            nuevoToken = secrets.token_hex(16)
-            self.users.pop(user)
-            self.users[user][0]["token"] = nuevoToken
-            with open('IceFlix/IceFlix/users.json', 'w') as fd:
-                json.dump(self.users,fd)
-        else:
+    def refreshAuthorization(self,user,passwordHash,current=None):
+        if not self.users.get(user):
             raise IceFlix.Unauthorized
+
+        if(self.users.get(user)[0]["passwordHash"] == passwordHash): 
+            self.users.pop(user)
+            nuevoToken = secrets.token_hex(16)
+            self.users[user] = [{"token":nuevoToken,"passwordHash":passwordHash,"timestamp":time.mktime(datetime.datetime.now().timetuple())}]
+            with open('IceFlix/users.json','w') as fd:
+                json.dump(self.users,fd)
         return nuevoToken
 
-    def isAuthorized(self,userToken,current=None): 
-        # Falta implementar que compruebe si está bien con temporizador.
+    def isAuthorized(self,userToken,current=None):
         lista = self.users.values()
         for i in lista:
             if i[0]["token"] == userToken:
@@ -70,7 +74,7 @@ class Authenticator(IceFlix.Authenticator):
 
         # Guardamos el nuevo usuario y de forma persistente también.
         self.users[user] = [{"token":secrets.token_hex(16),"passwordHash":passwordHash,"timestamp":time.mktime(datetime.datetime.now().timetuple())}]
-        with open('IceFlix/users.json', 'w') as fd:
+        with open('IceFlix/users.json','w') as fd:
             json.dump(self.users,fd)
 
     def removeUser(self,user,adminToken,current=None):
@@ -84,7 +88,7 @@ class Authenticator(IceFlix.Authenticator):
 
         # Borramos al usuario de nuestra estructura de datos y del archivo json.
         self.users.pop(user)
-        with open('IceFlix/users.json', 'w') as fd:
+        with open('IceFlix/users.json','w') as fd:
             json.dump(self.users,fd)
 
 class Server(Ice.Application):
@@ -94,7 +98,7 @@ class Server(Ice.Application):
         servant = Authenticator(adminToken)
 
         adapter = broker.createObjectAdapterWithEndpoints("AuthenticatorAdapter","tcp")
-        prx = adapter.add(servant, broker.stringToIdentity("authenticator"))
+        prx = adapter.add(servant,broker.stringToIdentity("authenticator"))
         
         adapter.activate()
 
@@ -103,17 +107,40 @@ class Server(Ice.Application):
         main = self.communicator().getProperties().getProperty('ProxyMain')
         prxMain = IceFlix.MainPrx.uncheckedCast((self.communicator().stringToProxy(main)))
 
-        # try:
-            # prxMain.newService(prx,servant.id)
-            # print("Servicio anunciado correctamente!")
-        # except Ice.ConnectionRefusedException:
-            # print("El servicio Main no se encuentra disponible...")
-            # self.communicator().shutdown()
+        try:
+            prxMain.newService(prx,servant.id)
+            hilo1 = threading.Thread(target=self.anunciarServicio,args=(prxMain,servant.id,prx,))
+            hilo1.start()
+
+            hilo2 = threading.Thread(target=self.revocarToken,args=(servant,))
+            hilo2.start()
+        except Ice.ConnectionRefusedException:
+            print("El servicio Main no se encuentra disponible...")
+            self.communicator().shutdown()
+
         
         self.shutdownOnInterrupt()
         broker.waitForShutdown()
 
         return 0
+        
+    def anunciarServicio(self,prxmain,servantID,authprx):
+        while True:
+            time.sleep(30)
+            try:
+                prxmain.announce(authprx,servantID)
+            except Ice.ConnectionRefusedException:
+                print("El servicio main no se encuentra disponible... ")
+
+    def revocarToken(self,auth:Authenticator):
+        while True:
+            for i in auth.users:
+                if (time.mktime(datetime.datetime.now().timetuple()) - auth.users.get(i)[0]["timestamp"]) > 120:
+                    auth.users.get(i)[0]["token"] = ""
+            with open('IceFlix/users.json','w') as fd:
+                json.dump(auth.users,fd)
+            time.sleep(30)
+            
 
 if __name__ == "__main__":
     server = Server()

@@ -4,6 +4,7 @@
 import logging
 
 import Ice
+import sys
 
 Ice.loadSlice('IceFlix.ice')
 import IceFlix # pylint:disable=import-error
@@ -28,35 +29,34 @@ class Main(IceFlix.Main):
 
     def newService(self, proxy, service_id, current):  # pylint:disable=invalid-name, unused-argument
         "Receive a proxy of a new service."
-        # TODO: implement
-        return
+        print("Servicio recibido por primera vez ",proxy,service_id)
 
     def announce(self, proxy, service_id, current):  # pylint:disable=invalid-name, unused-argument
         "Announcements handler."
-        # TODO: implement
-        return
+        print("Servicio anunciado ",proxy,service_id)
 
 
 class MainApp(Ice.Application):
     """Example Ice.Application for a Main service."""
 
-    def __init__(self):
-        super().__init__()
-        self.servant = Main()
-        self.proxy = None
-        self.adapter = None
-
-    def run(self, args):
+    def run(self, argv):
         """Run the application, adding the needed objects to the adapter."""
         logging.info("Running Main application")
-        comm = self.communicator()
-        self.adapter = comm.createObjectAdapter("MainAdapter")
-        self.adapter.activate()
+        broker = self.communicator()
+        servant = Main()
 
-        self.proxy = self.adapter.addWithUUID(self.servant)
-        print(f'The proxy of Authenticator is "{self.proxy}"')
+        adapter = broker.createObjectAdapterWithEndpoints("mainAdapter","tcp")
+        prx = adapter.add(servant, broker.stringToIdentity("main"))
+
+        print(f'Proxy of main is "{prx}"')
+        
+        adapter.activate()
 
         self.shutdownOnInterrupt()
-        comm.waitForShutdown()
+        broker.waitForShutdown()
 
         return 0
+
+if __name__ == "__main__":
+    server = MainApp()
+    sys.exit(server.main(sys.argv))
