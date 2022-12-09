@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
 """Module containing a template for a main service."""
 
 import logging
 
 import Ice
 
-import IceFlix  # pylint:disable=import-error
+Ice.loadSlice('IceFlix.ice')
+import IceFlix # pylint:disable=import-error
 
 
 class Main(IceFlix.Main):
@@ -52,6 +54,7 @@ class MainApp(Ice.Application):
         self.adapter.activate()
 
         self.proxy = self.adapter.addWithUUID(self.servant)
+        print(f'The proxy of Authenticator is "{self.proxy}"')
 
         self.shutdownOnInterrupt()
         comm.waitForShutdown()
