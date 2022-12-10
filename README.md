@@ -10,6 +10,7 @@ This repository contains the following files and directories:
   which will act as a database.
 - `iceflix/__init__.py` is an empty file needed by Python to
   recognise the `iceflix` directory as a Python module.
+- `iceflix/Authenticator.py`: The service implemented, executed through `run_service`
 - `iceflix/cli.py` contains several functions to handle the basic console entry points
   defined in `python.cfg`.
 - `iceflix/iceflix.ice` contains the Slice interface definition for the lab.
