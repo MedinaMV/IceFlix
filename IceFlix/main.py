@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Module containing a template for a main service."""
 
 import logging
@@ -6,7 +5,6 @@ import logging
 import Ice
 import sys
 
-Ice.loadSlice('IceFlix.ice')
 import IceFlix # pylint:disable=import-error
 
 
@@ -29,11 +27,13 @@ class Main(IceFlix.Main):
 
     def newService(self, proxy, service_id, current):  # pylint:disable=invalid-name, unused-argument
         "Receive a proxy of a new service."
-        print("Servicio recibido por primera vez ",proxy,service_id)
+        # TODO: implement
+        return None
 
     def announce(self, proxy, service_id, current):  # pylint:disable=invalid-name, unused-argument
         "Announcements handler."
-        print("Servicio anunciado ",proxy,service_id)
+        # TODO: implement
+        return None
 
 
 class MainApp(Ice.Application):
