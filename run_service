@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+# TODO: Remove the services you don't need
+python3 IceFlix/Authenticator.py --Ice.Config=configs/authenticator.config
