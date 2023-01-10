@@ -5,6 +5,7 @@ import logging
 import Ice
 import sys
 
+Ice.loadSlice('IceFlix.ice')
 import IceFlix # pylint:disable=import-error
 
 

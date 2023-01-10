@@ -9,7 +9,7 @@ import Ice
 import uuid
 import datetime
 import time
-Ice.loadSlice('IceFlix/IceFlix.ice')
+Ice.loadSlice('IceFlix.ice')
 
 PATH_USERS = 'IceFlix/users.json'
 
@@ -107,19 +107,49 @@ class Authenticator(IceFlix.Authenticator):
         self.users.pop(user)
         with open(PATH_USERS,'w') as fd:
             json.dump(self.users,fd)
+    
+    def bulkUpdate(self,current=None):
+        currentUsers,activeTokens = self.copyInfo()
+        auth_data = IceFlix.AuthenticatorData()
+        auth_data.adminToken = self.adminToken
+        auth_data.currentUsers = currentUsers
+        auth_data.activeTokens = activeTokens
+        return auth_data
+
+    def copyInfo(self):
+        usuarios = []
+        contraseñas = []
+        token = []
+        for i in self.users.keys():
+            usuarios.append(i)
+        for i in self.users.values():
+            if i[0]["token"] != "":
+                contraseñas.append(i[0]["passwordHash"])
+                token.append(i[0]["token"])
+        nuevo = {}
+        nuevo1 = {}
+        for tupla in zip(usuarios,contraseñas):
+            nuevo[tupla[0]] = tupla[1]
+
+        for tupla in zip(usuarios,token):
+            nuevo1[tupla[0]] = tupla[1]
+
+        return nuevo,nuevo1
 
 class Server(Ice.Application):
     def run(self, argv):
         broker = self.communicator()
         adminToken = self.communicator().getProperties().getProperty('AdminToken')
+        print(adminToken)
         servant = Authenticator(adminToken)
 
         adapter = broker.createObjectAdapterWithEndpoints("AuthenticatorAdapter","tcp")
         prx = adapter.add(servant,broker.stringToIdentity("authenticator"))
+        print(f'Auth proxy is "{prx}"')
         
         adapter.activate()
 
-        main = self.communicator().getProperties().getProperty('ProxyMain')
+        """main = self.communicator().getProperties().getProperty('ProxyMain')
         prxMain = IceFlix.MainPrx.uncheckedCast((self.communicator().stringToProxy(main)))
 
         try:
@@ -139,7 +169,7 @@ class Server(Ice.Application):
         except KeyboardInterrupt:
             hilo1.kill()
             hilo2.kill()
-            self.communicator().shutdown()
+            self.communicator().shutdown()"""
 
         self.shutdownOnInterrupt()
         broker.waitForShutdown()
