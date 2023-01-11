@@ -24,6 +24,8 @@ class Authenticator(IceFlix.Authenticator):
     def __init__(self,adminToken):
         self.id = str(uuid.uuid4())
         self.adminToken = adminToken
+        self.proxies = []
+        self.userUpdate = None
         try:
             with open(PATH_USERS,'r') as fd:
                 self.users = json.load(fd)
@@ -50,6 +52,7 @@ class Authenticator(IceFlix.Authenticator):
             with open(PATH_USERS,'w') as fd:
                 json.dump(self.users,fd)
 
+        self.userUpdate.newToken(user,nuevoToken,self.id)
         return nuevoToken
 
     def isAuthorized(self,userToken,current=None):
@@ -94,6 +97,8 @@ class Authenticator(IceFlix.Authenticator):
 
         with open(PATH_USERS,'w') as fd:
             json.dump(self.users,fd)
+        
+        self.userUpdate.newUser(user,passwordHash,self.id)
 
     def removeUser(self,user,adminToken,current=None):
         # Si el token suministrado no es el del admin, se lanza la excepcion.
@@ -108,6 +113,8 @@ class Authenticator(IceFlix.Authenticator):
         self.users.pop(user)
         with open(PATH_USERS,'w') as fd:
             json.dump(self.users,fd)
+
+        self.userUpdate.removeUser(user,self.id)
     
     def bulkUpdate(self,current=None):
         currentUsers = {}
@@ -127,16 +134,40 @@ class Authenticator(IceFlix.Authenticator):
         return auth_data
 
 class UserUpdate(IceFlix.UserUpdate):
+    def __init__(self,auth:Authenticator):
+        self.auth = auth
+
     def newToken(self,user,token,serviceId,current=None):
-        print("Hello World")
+        if(serviceId in self.auth.proxies and serviceId != self.auth.id):
+            self.auth.users.get(user)[0]["token"] = token
+            with open(PATH_USERS,'w') as fd:
+                json.dump(self.auth.users,fd)
 
     def revokeToken(self,token,serviceId,current=None):
-        print("Hello World")
+        if(serviceId in self.auth.proxies and serviceId != self.auth.id):
+            user = self.auth.whois(token)
+            self.auth.users.get(user)[0]["token"] = ""
+            with open(PATH_USERS,'w') as fd:
+                json.dump(self.auth.users,fd)
 
     def newUser(self,user,passwordHash,serviceId,current=None):
-        print("Hello World")
+        if(serviceId in self.auth.proxies and serviceId != self.auth.id):
+            self.auth.users[user] = [{"token":secrets.token_hex(16),"passwordHash":passwordHash,
+            "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
+            with open(PATH_USERS,'w') as fd:
+                json.dump(self.auth.users,fd)
 
     def removeUser(self,user,serviceId,current=None):
+        if(serviceId in self.auth.proxies and serviceId != self.auth.id):
+            self.auth.users.pop(user)
+            with open(PATH_USERS,'w') as fd:
+                json.dump(self.auth.users,fd)
+
+class Announcement(IceFlix.Announcement):
+    def __init__(self,auth:Authenticator):
+        self.auth = auth
+
+    def announce(self,service,serviceId):
         print("Hello World")
 
 class Server(Ice.Application):
@@ -148,16 +179,10 @@ class Server(Ice.Application):
         adapter = broker.createObjectAdapterWithEndpoints("AuthenticatorAdapter","tcp")
         prx = adapter.add(servant,broker.stringToIdentity("authenticator"))
         print(f'Auth proxy is "{prx}"')
-        
+
         adapter.activate()
-        
-        """main = self.communicator().getProperties().getProperty('ProxyMain')
-        prxMain = IceFlix.MainPrx.uncheckedCast((self.communicator().stringToProxy(main)))
 
-        try:
-            # Anunciamos el servicio al iniciarlo.
-            prxMain.newService(prx,servant.id)
-
+        """try:
             # Iniciamos el hilo que anuncia el servicio cada 30s.
             hilo1 = threading.Thread(target=self.anunciarServicio,args=(prxMain,servant.id,prx,))
             hilo1.start()
@@ -172,6 +197,13 @@ class Server(Ice.Application):
             hilo1.kill()
             hilo2.kill()
             self.communicator().shutdown()"""
+
+        servant_updates = UserUpdate(servant)
+        proxy_updates = adapter.addWithUUID(servant_updates)
+        topic_updates = topics.getTopic(topics.getTopicManager(broker),'UserUpdates')
+        topic_updates.subscribeAndGetPublisher({}, proxy_updates)
+        publisher_updates = topics.getTopic(topics.getTopicManager(broker), 'UserUpdates').getPublisher()
+        servant.userUpdate = IceFlix.UserUpdatePrx.uncheckedCast(publisher_updates)
 
         self.shutdownOnInterrupt()
         broker.waitForShutdown()
@@ -192,6 +224,7 @@ class Server(Ice.Application):
         while True:
             for i in auth.users:
                 if (time.mktime(datetime.datetime.now().timetuple()) - auth.users.get(i)[0]["timestamp"]) >= 120:
+                    auth.userUpdate.revokeToken(auth.users.get(i)[0]["token"],auth.id)
                     auth.users.get(i)[0]["token"] = ""
             with open(PATH_USERS,'w') as fd:
                 json.dump(auth.users,fd)
