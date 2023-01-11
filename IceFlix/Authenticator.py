@@ -9,7 +9,8 @@ import Ice
 import uuid
 import datetime
 import time
-Ice.loadSlice('IceFlix.ice')
+import topics
+Ice.loadSlice('IceFlix/IceFlix.ice')
 
 PATH_USERS = 'IceFlix/users.json'
 
@@ -109,38 +110,39 @@ class Authenticator(IceFlix.Authenticator):
             json.dump(self.users,fd)
     
     def bulkUpdate(self,current=None):
-        currentUsers,activeTokens = self.copyInfo()
+        currentUsers = {}
+        activeTokens = {}
+
+        for i in self.users.keys():
+            if self.users.get(i)[0]["token"] != "":
+                activeTokens[i] = self.users.get(i)[0]["token"]
+                currentUsers[i] = self.users.get(i)[0]["passwordHash"]
+
         auth_data = IceFlix.AuthenticatorData()
+
         auth_data.adminToken = self.adminToken
         auth_data.currentUsers = currentUsers
         auth_data.activeTokens = activeTokens
+
         return auth_data
 
-    def copyInfo(self):
-        usuarios = []
-        contraseñas = []
-        token = []
-        for i in self.users.keys():
-            usuarios.append(i)
-        for i in self.users.values():
-            if i[0]["token"] != "":
-                contraseñas.append(i[0]["passwordHash"])
-                token.append(i[0]["token"])
-        nuevo = {}
-        nuevo1 = {}
-        for tupla in zip(usuarios,contraseñas):
-            nuevo[tupla[0]] = tupla[1]
+class UserUpdate(IceFlix.UserUpdate):
+    def newToken(self,user,token,serviceId,current=None):
+        print("Hello World")
 
-        for tupla in zip(usuarios,token):
-            nuevo1[tupla[0]] = tupla[1]
+    def revokeToken(self,token,serviceId,current=None):
+        print("Hello World")
 
-        return nuevo,nuevo1
+    def newUser(self,user,passwordHash,serviceId,current=None):
+        print("Hello World")
+
+    def removeUser(self,user,serviceId,current=None):
+        print("Hello World")
 
 class Server(Ice.Application):
     def run(self, argv):
         broker = self.communicator()
         adminToken = self.communicator().getProperties().getProperty('AdminToken')
-        print(adminToken)
         servant = Authenticator(adminToken)
 
         adapter = broker.createObjectAdapterWithEndpoints("AuthenticatorAdapter","tcp")
@@ -148,7 +150,7 @@ class Server(Ice.Application):
         print(f'Auth proxy is "{prx}"')
         
         adapter.activate()
-
+        
         """main = self.communicator().getProperties().getProperty('ProxyMain')
         prxMain = IceFlix.MainPrx.uncheckedCast((self.communicator().stringToProxy(main)))
 
