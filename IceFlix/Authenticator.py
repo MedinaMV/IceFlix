@@ -6,10 +6,10 @@ import json
 import threading
 import secrets
 import Ice
+import IceStorm
 import uuid
 import datetime
 import time
-import topics
 Ice.loadSlice('IceFlix/IceFlix.ice')
 
 PATH_USERS = 'IceFlix/users.json'
@@ -34,22 +34,22 @@ class Authenticator(IceFlix.Authenticator):
             self.users = {}
 
     def refreshAuthorization(self,user,passwordHash,current=None):
-        # Si el usuario no está dado de alta, lanzamos excepción.
+        """Si el usuario no está dado de alta, lanzamos excepción."""
         if not self.users.get(user):
             raise IceFlix.Unauthorized
 
-        # Comprobamos que la contraseña conincida con la del usuario.
+        """Comprobamos que la contraseña conincida con la del usuario."""
         if(self.users.get(user)[0]["passwordHash"] == passwordHash): 
 
-            #Para revocar el token borramos al usuario y volvemos a generar un token para el mismo.
+            """Para revocar el token borramos al usuario y volvemos a generar un token para el mismo."""
             self.users.pop(user)
             nuevoToken = secrets.token_hex(16)
 
-            # Volvemos a dar de alta al usuario 
+            """Volvemos a dar de alta al usuario """
             self.users[user] = [{"token":nuevoToken,"passwordHash":passwordHash,
             "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
 
-            # Y lo guardamos de forma persistente.
+            """ Y lo guardamos de forma persistente."""
             with open(PATH_USERS,'w') as fd:
                 json.dump(self.users,fd)
 
@@ -57,42 +57,42 @@ class Authenticator(IceFlix.Authenticator):
         return nuevoToken
 
     def isAuthorized(self,userToken,current=None):
-        # Obtenemos los valores del diccionario. 
+        """Obtenemos los valores del diccionario. """
         lista = self.users.values()
 
-        # Buscamos si el token pasado por parámetro coincide con alguno de los de nuestros usuarios.
+        """Buscamos si el token pasado por parámetro coincide con alguno de los de nuestros usuarios."""
         for i in lista:
             if i[0]["token"] == userToken:
                 return True
         return False
 
     def whois(self,userToken,current=None):
-        # Si no es un token autorizado se lanza la excepcion.
+        """Si no es un token autorizado se lanza la excepcion."""
         if not self.isAuthorized(userToken):
             raise IceFlix.Unauthorized
 
-        # Buscamos dentro de los valores de nuestro diccionario y devolvemos la clave.
+        """ Buscamos dentro de los valores de nuestro diccionario y devolvemos la clave."""
         lista = self.users.items()
         for i in lista:
             if i[1][0]["token"] == userToken:
                 return i[0]
 
     def isAdmin(self,adminToken,current=None):  
-        # Si el token no es del admin se lanza la excepcion.
+        """Si el token no es del admin se lanza la excepcion."""
         if self.adminToken == adminToken:
             return True
         return False
 
     def addUser(self,user,passwordHash,adminToken,current=None): 
-        # Si el token suministrado no es el del admin, se lanza la excepcion.
+        """ Si el token suministrado no es el del admin, se lanza la excepcion."""
         if not self.isAdmin(adminToken):
             raise IceFlix.Unauthorized
 
-        # No se permiten usuarios con el mismo nombre por lo tanto, si ya existe uno, se lanza la excepcion.
+        """ No se permiten usuarios con el mismo nombre por lo tanto, si ya existe uno, se lanza la excepcion."""
         if self.users.get(user):
             raise IceFlix.Unauthorized
 
-        # Guardamos el nuevo usuario y de forma persistente también.
+        """ Guardamos el nuevo usuario y de forma persistente también."""
         self.users[user] = [{"token":secrets.token_hex(16),"passwordHash":passwordHash,
         "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
 
@@ -122,9 +122,9 @@ class Authenticator(IceFlix.Authenticator):
         activeTokens = {}
 
         for i in self.users.keys():
-            if self.users.get(i)[0]["token"] != "":
+            currentUsers[i] = self.users.get(i)[0]["passwordHash"]
+            if(self.users.get(i)[0]["token"] != "" and self.users.get(i)[0]["token"] != None):
                 activeTokens[i] = self.users.get(i)[0]["token"]
-                currentUsers[i] = self.users.get(i)[0]["passwordHash"]
 
         auth_data = IceFlix.AuthenticatorData()
 
@@ -140,14 +140,21 @@ class UserUpdate(IceFlix.UserUpdate):
 
     def newToken(self,user,token,serviceId,current=None):
         if(serviceId in self.auth.proxies and serviceId != self.auth.id):
-            self.auth.users.get(user)[0]["token"] = token
+            passw = self.auth.users.get(user)[0]["passwordHash"]
+            self.auth.users.pop(user)
+            self.auth.users[user] = [{"token":token,"passwordHash":passw,
+            "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
+            print(self.auth.users)
             with open(PATH_USERS,'w') as fd:
                 json.dump(self.auth.users,fd)
 
     def revokeToken(self,token,serviceId,current=None):
         if(serviceId in self.auth.proxies and serviceId != self.auth.id):
             user = self.auth.whois(token)
-            self.auth.users.get(user)[0]["token"] = ""
+            passw = self.auth.users.get(user)[0]["passwordHash"]
+            self.auth.users.pop(user)
+            self.auth.users[user] = [{"token":"","passwordHash":passw,
+            "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
             with open(PATH_USERS,'w') as fd:
                 json.dump(self.auth.users,fd)
 
@@ -169,18 +176,24 @@ class Announcement(IceFlix.Announcement):
         self.auth = auth
 
     def announce(self,service,serviceId,current=None):
-        if(serviceId not in self.auth.proxies):
-            self.auth.proxies[serviceId] = service
-            print("ServiceId:  ",serviceId, " ",service , "stored")
+        if(serviceId not in self.auth.proxies and serviceId != self.auth.id):
+            self.auth.proxies[serviceId] = [{"service":service,
+            "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
+            print("Service:",service,"stored")
         else:
-            print("ServiceId:  ",serviceId, " ",service , "ignored")
+            print("Service:",service ,"ignored")
 
 class Server(Ice.Application):
     def run(self, argv):
         broker = self.communicator()
+
         adminToken = self.communicator().getProperties().getProperty('AdminToken')
         servant = Authenticator(adminToken)
 
+        topic_manager_str_prx = 'IceStorm/TopicManager:tcp -p 10000'
+        TOPIC_MANAGER = IceStorm.TopicManagerPrx.checkedCast(
+            broker.stringToProxy(topic_manager_str_prx),
+        )
         adapter = broker.createObjectAdapterWithEndpoints("AuthenticatorAdapter","tcp")
         prx = adapter.add(servant,broker.stringToIdentity("authenticator"))
         print(f'Auth proxy is "{prx}"')
@@ -189,81 +202,103 @@ class Server(Ice.Application):
 
         servant_discovery = Announcement(servant)
         proxy_discovery = adapter.addWithUUID(servant_discovery)
-        topic_ann = topics.getTopic(topics.getTopicManager(broker),'ServiceAnnouncements')
-        topic_ann.subscribeAndGetPublisher({},proxy_discovery)
-        publisher_ann = topics.getTopic(topics.getTopicManager(broker),'ServiceAnnouncements').getPublisher()
-        servant.announcement = IceFlix.AnnouncementPrx.uncheckedCast(publisher_ann)
-
-        t = threading.Timer(12,self.startUpService,[servant])
-        t.start()
-
-        if(len(servant.proxies) == 0):
-            self.communicator().shutdown()
-
         try:
-            h1 = threading.Thread(target=self.anunciarServicio,args=(servant,prx,))
-            h1.start()
-            h2 = threading.Thread(target=self.revocarToken,args=(servant,))
-            h2.start()
-        except KeyboardInterrupt:
-            h1.kill()
-            h2.kill()
-            self.communicator().shutdown()
+            topic = TOPIC_MANAGER.create('Announcements')
+        except:
+            topic = TOPIC_MANAGER.retrieve('Announcements')
+        topic.subscribeAndGetPublisher({},proxy_discovery)
 
         servant_updates = UserUpdate(servant)
         proxy_updates = adapter.addWithUUID(servant_updates)
-        topic_updates = topics.getTopic(topics.getTopicManager(broker),'UserUpdates')
+        try:
+            topic_updates = TOPIC_MANAGER.create('UserUpdates')
+        except:
+            topic_updates = TOPIC_MANAGER.retrieve('UserUpdates')
         topic_updates.subscribeAndGetPublisher({},proxy_updates)
-        publisher_updates = topics.getTopic(topics.getTopicManager(broker),'UserUpdates').getPublisher()
-        servant.userUpdate = IceFlix.UserUpdatePrx.uncheckedCast(publisher_updates)
+
+        t = threading.Timer(12,self.startUpService,[prx,servant,topic,topic_updates])
+        t.start()
 
         self.shutdownOnInterrupt()
         broker.waitForShutdown()
-        topic_ann.unsubscribe(proxy_discovery)
+        topic.unsubscribe(proxy_discovery)
         topic_updates.unsubscribe(proxy_updates)
 
         return 0
+    
+    def anunciarServicio(self,prx,servant,topic):
+        while True:
+            publisher = topic.getPublisher()
+            servant.announcement = IceFlix.AnnouncementPrx.uncheckedCast(publisher)
+            servant.announcement.announce(prx,servant.id)
+            time.sleep(10)
         
-    def startUpService(self,auth:Authenticator):
+    def startUpService(self,prx,auth:Authenticator,topic,topic1):
         if(len(auth.proxies) == 0):
+            print("No main, chao baby")
+            self.communicator().shutdown()
             return
             
         authenticator = None
         main = None
 
-        for value in auth.proxies.values():
+        for key in auth.proxies:
+            value = auth.proxies.get(key)[0]["service"]
             if(IceFlix.AuthenticatorPrx.checkedCast(value)):
-                authenticator = value
+                authenticator = IceFlix.AuthenticatorPrx.checkedCast(value)
             elif(IceFlix.MainPrx.checkedCast(value)):
-                main = value
+                main = IceFlix.MainPrx.checkedCast(value)
 
         if main == None:
-            auth.proxies = {}
+            print("No main, chao baby")
+            self.communicator().shutdown()
             return
 
         if authenticator != None:
+            print("Procediendo a BulkUpdate")
             authData = authenticator.bulkUpdate()
+            print(authData)
             auth.adminToken = authData.adminToken
             for i in authData.currentUsers:
+                token = ""
                 try:
                     token = authData.activeTokens.get(i)
                 except KeyError:
-                    token = secrets.token_hex(16)
-
+                    pass
                 auth.users[i] = [{"token":token,"passwordHash":authData.currentUsers.get(i),
                 "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
+                with open(PATH_USERS,'w') as fd:
+                        json.dump(auth.users,fd)
+        else:
+            print("Yo soy el primer auth")
 
-    def anunciarServicio(self,servant,prx):
-        servant.announcement.announce(prx,servant.id)
+        t = threading.Thread(target=self.anunciarServicio,args=(prx,auth,topic))
+        t.start()
 
-    def revokeToken(self,auth:Authenticator):
+        h = threading.Thread(target=self.revocarTokens,args=(auth,topic1))
+        h.start()
+
+        b = threading.Thread(target=self.revokeServices,args=(auth,))
+        b.start()
+
+    def revokeServices(self,auth:Authenticator):
         while True:
+            for i in auth.proxies:
+                if(time.mktime(datetime.datetime.now().timetuple()) - auth.proxies.get(i)[0]["timestamp"]) >= 40:
+                    auth.proxies.pop(i)
+            print(auth.proxies)        
+            time.sleep(30)
+
+    def revocarTokens(self,auth:Authenticator,topic):
+        while True:
+            publisher = topic.getPublisher()
+            auth.userUpdate = IceFlix.UserUpdatePrx.uncheckedCast(publisher)
             for i in auth.users:
                 if (time.mktime(datetime.datetime.now().timetuple()) - auth.users.get(i)[0]["timestamp"]) >= 120:
                     auth.userUpdate.revokeToken(auth.users.get(i)[0]["token"],auth.id)
                     auth.users.get(i)[0]["token"] = ""
-            with open(PATH_USERS,'w') as fd:
-                json.dump(auth.users,fd)
+                    with open(PATH_USERS,'w') as fd:
+                        json.dump(auth.users,fd)
             # Cada 30s se comprueba el timestamp de los tokens de usuario.
             time.sleep(30)
             
