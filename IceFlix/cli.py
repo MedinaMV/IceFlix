@@ -3,7 +3,6 @@
 import logging
 import sys
 
-from iceflix.Main import MainApp
 
 
 LOG_FORMAT = '%(asctime)s - %(levelname)-7s - %(module)s:%(funcName)s:%(lineno)d - %(message)s'

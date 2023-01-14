@@ -41,8 +41,7 @@ class Authenticator(IceFlix.Authenticator):
         """Comprobamos que la contraseña conincida con la del usuario."""
         if(self.users.get(user)[0]["passwordHash"] == passwordHash): 
 
-            """Para revocar el token borramos al usuario y volvemos a generar un token para el mismo."""
-            self.users.pop(user)
+            """Creamos el nuevo token"""
             nuevoToken = secrets.token_hex(16)
 
             """Volvemos a dar de alta al usuario """
@@ -140,26 +139,24 @@ class UserUpdate(IceFlix.UserUpdate):
 
     def newToken(self,user,token,serviceId,current=None):
         if(serviceId in self.auth.proxies and serviceId != self.auth.id):
-            passw = self.auth.users.get(user)[0]["passwordHash"]
-            self.auth.users.pop(user)
-            self.auth.users[user] = [{"token":token,"passwordHash":passw,
+            print("NewToken() received from ",serviceId)
+            self.auth.users[user] = [{"token":token,"passwordHash":self.auth.users.get(user)[0]["passwordHash"],
             "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
-            print(self.auth.users)
             with open(PATH_USERS,'w') as fd:
                 json.dump(self.auth.users,fd)
 
     def revokeToken(self,token,serviceId,current=None):
         if(serviceId in self.auth.proxies and serviceId != self.auth.id):
+            print("RevokeToken() received from ",serviceId)
             user = self.auth.whois(token)
-            passw = self.auth.users.get(user)[0]["passwordHash"]
-            self.auth.users.pop(user)
-            self.auth.users[user] = [{"token":"","passwordHash":passw,
-            "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
+            self.auth.users[user] = [{"token":"","passwordHash":self.auth.users.get(user)[0]["passwordHash"],
+            "timestamp":""}]
             with open(PATH_USERS,'w') as fd:
                 json.dump(self.auth.users,fd)
 
     def newUser(self,user,passwordHash,serviceId,current=None):
         if(serviceId in self.auth.proxies and serviceId != self.auth.id):
+            print("NewUser() received from ",serviceId)
             self.auth.users[user] = [{"token":secrets.token_hex(16),"passwordHash":passwordHash,
             "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
             with open(PATH_USERS,'w') as fd:
@@ -167,6 +164,7 @@ class UserUpdate(IceFlix.UserUpdate):
 
     def removeUser(self,user,serviceId,current=None):
         if(serviceId in self.auth.proxies and serviceId != self.auth.id):
+            print("RemoveUser() received from ",serviceId)
             self.auth.users.pop(user)
             with open(PATH_USERS,'w') as fd:
                 json.dump(self.auth.users,fd)
@@ -176,12 +174,17 @@ class Announcement(IceFlix.Announcement):
         self.auth = auth
 
     def announce(self,service,serviceId,current=None):
-        if(serviceId not in self.auth.proxies and serviceId != self.auth.id):
-            self.auth.proxies[serviceId] = [{"service":service,
-            "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
-            print("Service:",service,"stored")
-        else:
-            print("Service:",service ,"ignored")
+        if(IceFlix.AuthenticatorPrx.checkedCast(service) or IceFlix.MainPrx.checkedCast(service)):
+            if(serviceId not in self.auth.proxies and serviceId != self.auth.id):
+                self.auth.proxies[serviceId] = [{"service":service,
+                "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
+                print("Service:",service,"stored")
+            elif(serviceId in self.auth.proxies and serviceId != self.auth.id):
+                self.auth.proxies[serviceId] = [{"service":service,
+                "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
+                print("Service:",service,"updated")
+            else:
+                print("Service:",service,"ignored")
 
 class Server(Ice.Application):
     def run(self, argv):
@@ -196,7 +199,6 @@ class Server(Ice.Application):
         )
         adapter = broker.createObjectAdapterWithEndpoints("AuthenticatorAdapter","tcp")
         prx = adapter.add(servant,broker.stringToIdentity("authenticator"))
-        print(f'Auth proxy is "{prx}"')
 
         adapter.activate()
 
@@ -225,17 +227,10 @@ class Server(Ice.Application):
         topic_updates.unsubscribe(proxy_updates)
 
         return 0
-    
-    def anunciarServicio(self,prx,servant,topic):
-        while True:
-            publisher = topic.getPublisher()
-            servant.announcement = IceFlix.AnnouncementPrx.uncheckedCast(publisher)
-            servant.announcement.announce(prx,servant.id)
-            time.sleep(10)
-        
+
     def startUpService(self,prx,auth:Authenticator,topic,topic1):
         if(len(auth.proxies) == 0):
-            print("No main, chao baby")
+            print("No main found, shutting down")
             self.communicator().shutdown()
             return
             
@@ -250,14 +245,13 @@ class Server(Ice.Application):
                 main = IceFlix.MainPrx.checkedCast(value)
 
         if main == None:
-            print("No main, chao baby")
+            print("No main found, shutting down")
             self.communicator().shutdown()
             return
 
         if authenticator != None:
-            print("Procediendo a BulkUpdate")
+            print("BulkUpdate from",authenticator,"\n")
             authData = authenticator.bulkUpdate()
-            print(authData)
             auth.adminToken = authData.adminToken
             for i in authData.currentUsers:
                 token = ""
@@ -268,9 +262,9 @@ class Server(Ice.Application):
                 auth.users[i] = [{"token":token,"passwordHash":authData.currentUsers.get(i),
                 "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
                 with open(PATH_USERS,'w') as fd:
-                        json.dump(auth.users,fd)
+                    json.dump(auth.users,fd)
         else:
-            print("Yo soy el primer auth")
+            print("I'm the first Authenticator, restoring DataBase\n")
 
         t = threading.Thread(target=self.anunciarServicio,args=(prx,auth,topic))
         t.start()
@@ -281,12 +275,21 @@ class Server(Ice.Application):
         b = threading.Thread(target=self.revokeServices,args=(auth,))
         b.start()
 
+    def anunciarServicio(self,prx,servant,topic):
+        while True:
+            publisher = topic.getPublisher()
+            servant.announcement = IceFlix.AnnouncementPrx.uncheckedCast(publisher)
+            servant.announcement.announce(prx,servant.id)
+            time.sleep(9)
+
     def revokeServices(self,auth:Authenticator):
         while True:
+            deleteItems = []
             for i in auth.proxies:
-                if(time.mktime(datetime.datetime.now().timetuple()) - auth.proxies.get(i)[0]["timestamp"]) >= 40:
-                    auth.proxies.pop(i)
-            print(auth.proxies)        
+                if(time.mktime(datetime.datetime.now().timetuple()) - auth.proxies.get(i)[0]["timestamp"]) >= 15:
+                    deleteItems.append(i)
+            for i in deleteItems:
+                auth.proxies.pop(i)       
             time.sleep(30)
 
     def revocarTokens(self,auth:Authenticator,topic):
@@ -294,12 +297,13 @@ class Server(Ice.Application):
             publisher = topic.getPublisher()
             auth.userUpdate = IceFlix.UserUpdatePrx.uncheckedCast(publisher)
             for i in auth.users:
-                if (time.mktime(datetime.datetime.now().timetuple()) - auth.users.get(i)[0]["timestamp"]) >= 120:
-                    auth.userUpdate.revokeToken(auth.users.get(i)[0]["token"],auth.id)
-                    auth.users.get(i)[0]["token"] = ""
-                    with open(PATH_USERS,'w') as fd:
-                        json.dump(auth.users,fd)
-            # Cada 30s se comprueba el timestamp de los tokens de usuario.
+                if(auth.users.get(i)[0]["timestamp"] != "" and auth.users.get(i)[0]["token"] != None):
+                    if (time.mktime(datetime.datetime.now().timetuple()) - auth.users.get(i)[0]["timestamp"]) >= 120:
+                        auth.userUpdate.revokeToken(auth.users.get(i)[0]["token"],auth.id)
+                        auth.users.get(i)[0]["token"] = ""
+                        auth.users.get(i)[0]["timestamp"] = ""
+                        with open(PATH_USERS,'w') as fd:
+                            json.dump(auth.users,fd)
             time.sleep(30)
             
 if __name__ == "__main__":
