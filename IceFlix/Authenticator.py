@@ -120,6 +120,7 @@ class Authenticator(IceFlix.Authenticator):
         currentUsers = {}
         activeTokens = {}
 
+        """Realizamos las transformaciones necesarias para adaptarnos a la interfaz"""
         for i in self.users.keys():
             currentUsers[i] = self.users.get(i)[0]["passwordHash"]
             if(self.users.get(i)[0]["token"] != "" and self.users.get(i)[0]["token"] != None):
@@ -127,6 +128,7 @@ class Authenticator(IceFlix.Authenticator):
 
         auth_data = IceFlix.AuthenticatorData()
 
+        """Empacamos la información y la enviamos"""
         auth_data.adminToken = self.adminToken
         auth_data.currentUsers = currentUsers
         auth_data.activeTokens = activeTokens
@@ -138,48 +140,82 @@ class UserUpdate(IceFlix.UserUpdate):
         self.auth = auth
 
     def newToken(self,user,token,serviceId,current=None):
+        """Si el serviceId lo tenemos registrado y no soy yo, continuamos"""
         if(serviceId in self.auth.proxies and serviceId != self.auth.id):
+
+            """Mostramos la información recibida"""
             print("NewToken() received from ",serviceId)
+
+            """Refrescamos el token de nuestra base de datos"""
             self.auth.users[user] = [{"token":token,"passwordHash":self.auth.users.get(user)[0]["passwordHash"],
             "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
             with open(PATH_USERS,'w') as fd:
-                json.dump(self.auth.users,fd)
+                json.dump(self.auth.users,fd)        
+        else:
+            print("NewToken() from ",serviceId," ignored")
 
     def revokeToken(self,token,serviceId,current=None):
+        """Si el serviceId lo tenemos registrado y no soy yo, continuamos"""
         if(serviceId in self.auth.proxies and serviceId != self.auth.id):
+
+            """Mostramos la información recibida"""
             print("RevokeToken() received from ",serviceId)
+
+            """Eliminamos el token de nuestra base de datos"""
             user = self.auth.whois(token)
             self.auth.users[user] = [{"token":"","passwordHash":self.auth.users.get(user)[0]["passwordHash"],
             "timestamp":""}]
             with open(PATH_USERS,'w') as fd:
                 json.dump(self.auth.users,fd)
+        else:
+            print("RevokeToken() from ",serviceId," ignored")
 
     def newUser(self,user,passwordHash,serviceId,current=None):
+
+        """Si el serviceId lo tenemos registrado y no soy yo, continuamos"""
         if(serviceId in self.auth.proxies and serviceId != self.auth.id):
+
+            """Mostramos la información recibida"""
             print("NewUser() received from ",serviceId)
+
+            """Añadimos el usuario a nuestra base de datos"""
             self.auth.users[user] = [{"token":secrets.token_hex(16),"passwordHash":passwordHash,
             "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
             with open(PATH_USERS,'w') as fd:
                 json.dump(self.auth.users,fd)
+        else:
+            print("NewUser() from ",serviceId,"ignored")
 
     def removeUser(self,user,serviceId,current=None):
+
+        """Si el serviceId lo tenemos registrado y no soy yo, continuamos"""
         if(serviceId in self.auth.proxies and serviceId != self.auth.id):
+
+            """Mostramos la información recibida"""
             print("RemoveUser() received from ",serviceId)
+
+            """Eliminamos el usuario de nuestra base de datos"""
             self.auth.users.pop(user)
             with open(PATH_USERS,'w') as fd:
                 json.dump(self.auth.users,fd)
+        else:
+            print("RemoveUser() from ",serviceId,"ignored")
 
 class Announcement(IceFlix.Announcement):
     def __init__(self,auth:Authenticator):
         self.auth = auth
 
     def announce(self,service,serviceId,current=None):
+
+        """Si el proxy no es el de un Authenticator o el de un Main, es ignorado"""
         if(IceFlix.AuthenticatorPrx.checkedCast(service) or IceFlix.MainPrx.checkedCast(service)):
+            
+            """Si es un nuevo servicio, se guarda. Si es conocido se actualiza el timestamp y sino es ignorado"""
             if(serviceId not in self.auth.proxies and serviceId != self.auth.id):
                 self.auth.proxies[serviceId] = [{"service":service,
                 "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
                 print("Service:",service,"stored")
-            elif(serviceId in self.auth.proxies and serviceId != self.auth.id):
+            elif(serviceId in self.auth.proxies and serviceId != self.auth.id): 
                 self.auth.proxies[serviceId] = [{"service":service,
                 "timestamp":time.mktime(datetime.datetime.now().timetuple())}]
                 print("Service:",service,"updated")
@@ -193,10 +229,9 @@ class Server(Ice.Application):
         adminToken = self.communicator().getProperties().getProperty('AdminToken')
         servant = Authenticator(adminToken)
 
-        topic_manager_str_prx = 'IceStorm/TopicManager:tcp -p 10000'
         TOPIC_MANAGER = IceStorm.TopicManagerPrx.checkedCast(
-            broker.stringToProxy(topic_manager_str_prx),
-        )
+            self.communicator().propertyToProxy("IceStorm.TopicManager")
+        )       
         adapter = broker.createObjectAdapterWithEndpoints("AuthenticatorAdapter","tcp")
         prx = adapter.add(servant,broker.stringToIdentity("authenticator"))
 
@@ -219,6 +254,7 @@ class Server(Ice.Application):
         topic_updates.subscribeAndGetPublisher({},proxy_updates)
 
         t = threading.Timer(12,self.startUpService,[prx,servant,topic,topic_updates])
+        t.daemon = True
         t.start()
 
         self.shutdownOnInterrupt()
@@ -267,12 +303,15 @@ class Server(Ice.Application):
             print("I'm the first Authenticator, restoring DataBase\n")
 
         t = threading.Thread(target=self.anunciarServicio,args=(prx,auth,topic))
+        t.daemon = True
         t.start()
 
         h = threading.Thread(target=self.revocarTokens,args=(auth,topic1))
+        h.daemon = True
         h.start()
 
         b = threading.Thread(target=self.revokeServices,args=(auth,))
+        b.daemon = True
         b.start()
 
     def anunciarServicio(self,prx,servant,topic):
